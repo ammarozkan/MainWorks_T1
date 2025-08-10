@@ -1,0 +1,35 @@
+.OnGoingInformation {
+    color: lightgreen;
+}
+
+.NotOnGoingInformation {
+    color: red;
+}
+
+.ProjectCard {
+    display:flex;
+    align-items: center;
+    margin: 1rem;
+    border: solid tomato;
+    border-radius: 4px;
+    background-color: honeydew;
+    width: 30rem;
+}
+
+.PCE {
+    display:flexbox;
+    margin:0.5rem;
+}
+
+.ProjectName {
+    font-size: larger;
+}
+
+.hide {
+  display: none;
+}
+
+.myDIV:hover + .hide {
+  display: block;
+  color: red;
+}

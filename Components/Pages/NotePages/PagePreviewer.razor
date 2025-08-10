@@ -1,0 +1,119 @@
+@rendermode InteractiveServer
+@using WORKS_T1.Models;
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<WORKS_T1.Data.WORKS_T1_Context> DbFactory
+@inject NavigationManager NavigationManager
+
+<!-- Piece rendering -->
+<div style="flex-direction:column;">
+@if (PageId != -1) {
+    <div class="NotePanel">
+    @for (int i = 0; i < components.Count; i++)
+    {
+        @(components[i].Preview())
+    }
+    </div>
+    <div class="ButtonPanel">
+    <p><button @onclick="edit">Edit</button> <button @onclick="deattachNotePage">Deattach NotePage</button></p>
+    </div>
+} else {
+    <div class="ButtonPanel">
+        <button @onclick="addNotePage">Add NotePage</button>
+    </div>
+}
+</div>
+
+@code {
+    // NOTE
+
+    [Parameter]
+    public int PageId {get;set;}
+
+    [Parameter]
+    public int distinctValue {get;set;} // when add notepage invoked, this will be the first parameter
+    // (for distinguishing the invokers)
+
+    [Parameter]
+    public EventCallback<int[]> NotePageAddedEvent {get;set;} // calls this after creating a new note page with note page's Id
+    
+    
+    [Parameter]
+    public EventCallback<int> NotePageDeattachEvent {get;set;} // calls this after creating a new note page with note page's Id
+
+    private List<NotePagePieceComponent> components = new List<NotePagePieceComponent>();
+    private NotePage? np;
+
+    async Task UpdatePiecesListFromDatabaseAsync()
+    {
+        components = new List<NotePagePieceComponent>();
+        using var context = DbFactory.CreateDbContext();
+
+
+        List<NotePagePiece> g = await context.NotePagePiece.Where(m => m.PageId == PageId).OrderBy(m => m.Order).ToListAsync();
+        foreach (NotePagePiece piece in g) {
+            NotePagePieceComponent? newOne = convertToComponent(piece);
+            if(newOne == null) {
+                continue;
+            }
+            newOne.RenderToFragment();
+            components.Add(newOne);
+        }
+    }
+
+    NotePagePieceComponent? convertToComponent(NotePagePiece piece)
+    {
+        if (piece.type == 0) {
+            return new NotePagePieceComponent_Text(piece);
+        } else if (piece.type == 1) {
+            return new NotePagePieceComponent_Header(piece);
+        } else if (piece.type == 2) {
+            return new NotePagePieceComponent_Image(piece);
+        } else if (piece.type == 3) {
+            return new NotePagePieceComponent_NotePageLink(piece);
+        } else if (piece.type == 5) {
+            return new NotePagePieceComponent_Link(piece);
+        } else if (piece.type == 6) {
+            return new NotePagePieceComponent_FileObject(piece);
+        } else {
+            return null;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        using var context = await DbFactory.CreateDbContextAsync();
+        np = await context.NotePage.FirstOrDefaultAsync(m => m.Id == PageId);
+        if (np == null) {
+            Console.WriteLine("not found.");
+        }
+
+        await UpdatePiecesListFromDatabaseAsync();
+    }
+
+    async void addNotePage()
+    {
+        using var context = await DbFactory.CreateDbContextAsync();
+
+        NotePage np = new();
+        np.Title = "Auto Generated";
+        await context.AddAsync(np);
+        await context.SaveChangesAsync();
+
+        int Id = np.Id;
+        int[] param = {distinctValue,Id};
+        await NotePageAddedEvent.InvokeAsync(param);
+        NavigationManager.NavigateTo($"pagerenderer/{Id}");
+    }
+
+    void deattachNotePage()
+    {
+        NotePageDeattachEvent.InvokeAsync(distinctValue);
+        PageId = -1;
+        StateHasChanged();
+    }
+
+    void edit()
+    {
+        NavigationManager.NavigateTo($"pagerenderer/{PageId}");
+    }
+}

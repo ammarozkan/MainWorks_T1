@@ -1,0 +1,33 @@
+.FileElm {
+    display:flex;
+    margin:0.5rem;
+}
+
+.FileElm button, .FileElm p {
+    margin:1rem;
+}
+
+.Folder {
+    background-color: yellow;
+}
+
+.File {
+    background-color: gray;
+}
+
+.MovingObject {
+    opacity: 0.5;
+}
+
+
+.CodeVisor {
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    display: flexbox;
+}
+
+.CodeVisor:hover {
+    opacity: 1;
+}

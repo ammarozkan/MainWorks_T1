@@ -1,0 +1,13 @@
+.NotePanel {
+    width:100%;
+    display:inline-block;
+}
+
+.ButtonPanel {
+    display:flex;
+    flex-direction:row;
+}
+
+.ButtonPanel button {
+    
+}

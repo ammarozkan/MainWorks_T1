@@ -1,0 +1,161 @@
+@rendermode InteractiveServer
+
+@using Microsoft.EntityFrameworkCore
+@using WORKS_T1.Models
+@using WORKS_T1.Data
+@inject IWebHostEnvironment Environment
+@inject IDbContextFactory<WORKS_T1.Data.WORKS_T1_Context> DbFactory
+@inject IJSRuntime JS
+
+<script>
+  window.downloadFileFromStream = async (fileName, contentStreamReference) => {
+    const arrayBuffer = await contentStreamReference.arrayBuffer();
+    const blob = new Blob([arrayBuffer]);
+    const url = URL.createObjectURL(blob);
+    const anchorElement = document.createElement('a');
+    anchorElement.href = url;
+    anchorElement.download = fileName ?? '';
+    anchorElement.click();
+    anchorElement.remove();
+    URL.revokeObjectURL(url);
+  }
+</script>
+
+
+<div class="@getClassName() FileElm" style="display:flex;">    
+    @if (!isEditing) {
+        <div style="display:flex;" @onclick="@(obj.isFolder ? Enter : Download)">
+            <p style="display:flexbox;">@obj.Name</p>
+        </div> <button style="width:1rem;height:1rem;align-items: center;" @onclick="EditStart"></button>
+    } else {
+        <div>
+            <InputText @bind-Value="obj.Name"/> <button @onclick="Submit">Okay</button>
+        </div>
+    }
+    @if (RemoveCallback.HasDelegate)
+        {
+            <button @onclick="Remove">Remove</button>
+        }
+        @if (MoveCallback.HasDelegate)
+        {
+            <button @onclick="Move">Move</button>
+        }
+    <button @onclick="ilG">Get</button>
+    <p class="CodeVisor">@(obj.Id)</p>
+</div>
+
+@code {
+    [Parameter]
+    public FileObject obj {get;set;}
+
+    [Parameter]
+    public EventCallback<int> EnterFolderCallback {get;set;}
+        
+    [Parameter]
+    public EventCallback<int> MoveCallback {get;set;}
+        
+    [Parameter]
+    public EventCallback<FileObject> RemoveCallback {get;set;}
+
+    [Parameter]
+    public int j {get;set;} = 0;
+        
+    [Parameter]
+    public bool IsMoving {get;set;} = false;
+
+    bool isEditing = false;
+
+    protected override void OnInitialized()
+    {
+
+    }
+
+    async void Submit()
+    {
+        var context = await DbFactory.CreateDbContextAsync();
+        var oldRealName = obj.RealName;
+        obj.RealName = obj.Name+"__"+Path.GetRandomFileName();
+        string parentDir = getRealPath(obj.BelongingFolderCode);
+        if (obj.isFolder) Directory.Move(parentDir+"\\"+oldRealName, parentDir+"\\"+obj.RealName);
+        else File.Move(parentDir+"\\"+oldRealName, parentDir+"\\"+obj.RealName);
+
+        context.Attach(obj).State = EntityState.Modified;
+        await context.SaveChangesAsync();
+        isEditing=false;
+    }
+
+    void EditStart()
+    {
+        isEditing = true;
+    }
+
+    string getClassName()
+    {
+        string result = "";
+        if (obj.isFolder) result += "Folder";
+        else {
+            result += "File";
+        }
+        if (IsMoving) result += " MovingObject";
+        return result;
+    }
+
+    async void Enter()
+    {
+        Console.WriteLine("Enter is invoking.");
+        await EnterFolderCallback.InvokeAsync(obj.Id);
+        Console.WriteLine("Invoked.");
+    }
+
+    void ilG()
+    {
+        int id = obj.Id;
+        SystemHelper.ilSetFile(id.ToString());
+        Console.WriteLine($"OKKKKKKKKKKKKKKK {SystemHelper.il!.value} {id.ToString()}");
+    }
+
+
+    // DOWNLOAD
+    private FileStream GetFileStream(int ObjId)
+    {
+        return File.OpenRead(getRealPath(ObjId));
+    }
+
+    async void Download()
+    {
+        var fileStream = GetFileStream(obj.Id);
+        var fileName = obj.Name;
+        using var streamRef = new DotNetStreamReference(stream: fileStream);
+
+        await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+    }
+
+    async void Move()
+    {
+        await MoveCallback.InvokeAsync(obj.Id);
+    }
+
+    async void Remove()
+    {
+        await RemoveCallback.InvokeAsync(obj);
+    }
+
+    FileObject? getObjById(int id)
+    {
+        var context = DbFactory.CreateDbContext();
+        return context.FileObject.FirstOrDefault(m => m.Id == id);
+    }
+
+    string getRealPath(int id)
+    {
+        string result = string.Empty;
+
+        if (id != -1) {
+            FileObject? obj = getObjById(id);
+            if (obj == null) return string.Empty;
+            return getRealPath(obj.BelongingFolderCode)+"\\"+obj.RealName;
+        } else {
+            return Path.Combine(Environment.ContentRootPath, Environment.EnvironmentName, "unsafe_uploads");
+        }
+    }
+}

@@ -1,0 +1,67 @@
+@page "/projects/create"
+@using Microsoft.EntityFrameworkCore
+@using WORKS_T1.Models
+@inject NavigationManager NavigationManager
+
+
+@inject IDbContextFactory<WORKS_T1.Data.WORKS_T1_Context> DbFactory;
+
+<PageTitle>Add Project</PageTitle>
+
+<div class="row">
+    <div class="col-md-4">
+        <EditForm method="post" Model="prelayerProject" OnValidSubmit="AddProject" FormName="create" Enhance>
+            <DataAnnotationsValidator/>
+            <ValidationSummary class="text-danger" role="alert"/>
+            <div class="mb-3">
+                <label for="projectName" class="form-label">Project Name:</label>
+                <InputText id="projectName" @bind-Value="prelayerProject.ProjectName" class="text-danger"/>
+                <ValidationMessage For="() => prelayerProject.ProjectName" class="text-danger"/>
+            </div>
+            <div class="mb-3">
+                <label for="focusType" class="form-label">Focus Type:</label>
+                <InputSelect id="focusType" @bind-Value="prelayerProject.focusType" class="text-danger">
+                    @foreach (var value in Enum.GetValues(typeof(FocusType)))
+                    {
+                        <option>@value</option>
+                    }
+                </InputSelect>
+                <ValidationMessage For="() => prelayerProject.focusType" class="text-danger"/>
+            </div>
+            <div class="mb-3">
+                <label for="Category" class="form-label">Category:</label>
+                <InputText id="Category" @bind-Value="prelayerProject.Category" class="text-danger"/>
+                <ValidationMessage For="() => prelayerProject.Category" class="text-danger"/>
+            </div>
+            <button type="submit" class="">Create</button>
+        </EditForm>
+    </div>
+</div>
+
+
+@code {
+    class PreLayerProject {
+        public string? ProjectName { get; set; }
+        public FocusType focusType {get;set;} = FocusType.MONO;
+        public string Category {get;set;} = "Nothing";
+    }
+
+    [SupplyParameterFromForm]
+    private PreLayerProject prelayerProject {get;set;} = new();
+    private Project Project { get; set; } = new();
+
+    private DateTime dateTime {get;set;} = new();
+
+    private async Task AddProject()
+    {
+        using var context = DbFactory.CreateDbContext();
+
+        Project.ProjectName = prelayerProject.ProjectName;
+        Project.focusType = prelayerProject.focusType;
+        Project.CategoryName = prelayerProject.Category;
+
+        context.Project.Add(Project);
+        await context.SaveChangesAsync();
+        NavigationManager.NavigateTo("/projects");
+    }
+}

@@ -1,0 +1,129 @@
+.ClockLine {
+    width:100%;background-color: rgb(170, 206, 230);height:3rem;display:flex;
+
+}
+
+.VerticalLine {
+    background-color: red;
+    width: 1px;
+    height:6rem;
+    position:absolute;
+    z-index: 500;
+}
+
+.VerticalClockLine {
+    z-index: 500;
+    height: 100hv;
+    background-color: rgb(233, 233, 233);
+}
+
+
+.ProjectBlock {
+    background-color: gray;
+    height:8rem;
+    position:relative;
+    display:flex;
+    margin-top:1rem;
+    margin-bottom:1rem;
+    padding:0.5rem;
+}
+
+.ControlPanel {
+    display:flex;justify-content:center;align-items:center;
+}
+
+.ControlPanel button, .ControlPanel input {
+    margin-left:1rem;
+    margin-right:1rem;
+}
+
+.ProjectTitle {
+    display:flexbox;
+    background-color: lightgray;
+    text-align:center;
+    text-orientation: mixed;
+    border-right:dashed;
+    border-right-color: rgb(166, 163, 163);
+    border-right-width: 2px;
+    writing-mode: vertical-lr;
+    text-align: center;
+    
+}
+
+.ProjectTitleEpic {
+    background-color: lightgreen;
+    z-index: 6;
+}
+
+.TimeTitle {
+    display:flexbox;
+    background-color: lightgray;
+    text-align:center;
+    text-orientation: mixed;
+    border-right:dashed;
+    border-right-color: rgb(166, 163, 163);
+    border-right-width: 2px;
+    writing-mode: vertical-lr;
+    text-align: center;
+    
+}
+
+.AgendaBlock {
+    width:100%;background-color: gray;
+    height:6rem;
+    position:relative;
+    display:flex;
+    margin-left: 1.5rem;
+}
+
+
+.AgendaRecordBlock {
+    height:6rem;
+    background-color: white;
+    position:absolute;
+    font-size: 0.5rem;
+    border:double;
+    border-color: gold;
+    z-index: 700;
+}
+
+.NonComplete {
+    border-left: none;
+}
+
+.NotEnded {
+    border-right:none;
+}
+
+.ClockText {
+    position:absolute;
+    white-space: pre-line;
+
+}
+
+
+.AgendaSettingsForm {
+    background-color:lightblue;
+    margin: 0.8rem;
+    padding:0.6rem;
+    border-radius: 4px;
+    z-index: 1500;
+}
+
+.AdditionButton {
+    padding:3rem;
+    text-decoration: none;
+    color:blueviolet;
+    font-size:x-large;
+    display:flex;justify-content:center;align-items:center;
+}
+
+.AdditionButton:hover {
+    background-color: cornflowerblue;
+}
+
+details {
+    margin-top:2rem;
+    margin-bottom:2rem;
+    background-color: rgba(0,0,0,0);
+}

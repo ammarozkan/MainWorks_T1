@@ -1,0 +1,136 @@
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using WORKS_T1.Models
+@using WORKS_T1.Data
+@inject IDbContextFactory<WORKS_T1.Data.WORKS_T1_Context> DbFactory
+@inject IWebHostEnvironment Environment
+@inject ILogger<FileUpload> Logger
+
+<!-- real file upload here -->
+
+
+<InputFile OnChange="LoadFiles" multiple style="padding:2rem;background-color:lightblue;margin:1rem;border-radius:3px;" />
+
+@code {
+    
+    private List<IBrowserFile> loadedFiles = [];
+    private long maxFileSize = long.MaxValue;
+    private int maxAllowedFiles = 500;
+    private bool isLoading;
+
+    public double percentage = 0.0f;
+    public string currentUpload = string.Empty;
+
+    [Parameter]
+    public int FolderId {get;set;} = -1;
+    [Parameter]
+    public EventCallback UploadHappenedCallback {get;set;}
+
+    private string uploadName;
+
+    async void pushFileHere(string name, string realName, string path, int FolderId)
+    {
+        var context = await DbFactory.CreateDbContextAsync();
+        FileObject fo = new();
+        fo.Name = name;
+        fo.Path = path;
+        fo.RealName = realName;
+        fo.BelongingFolderCode = FolderId;
+        await context.AddAsync(fo);
+        await context.SaveChangesAsync();
+    }
+
+    private async Task LoadFiles(InputFileChangeEventArgs e) // when page reloads, system just cuts it. opened files are still
+                                                             // opened.
+    {
+        isLoading = true;
+        loadedFiles.Clear();
+
+        long _filesSize = 0;
+
+        foreach(var file in e.GetMultipleFiles(maxAllowedFiles))
+        {
+            _filesSize += file.Size;
+        }
+
+        double filesSize = _filesSize;
+
+        double uploadedSize = 0.0f;
+
+        int bytesRead = 0;
+
+        foreach (var file in e.GetMultipleFiles(maxAllowedFiles))
+        {
+            currentUpload = file.Name;
+            var trustedFileName = Path.GetRandomFileName();
+            var realName = file.Name+"__"+trustedFileName;
+            var path = Path.Combine(getRealPath(FolderId), file.Name+"__"+trustedFileName);
+            await using FileStream fs = new(path, FileMode.Create);
+            try
+            {
+                Logger.LogInformation(
+                    "Unsafe Filename: {UnsafeFilename} File saving: {Filename}",
+                    file.Name, trustedFileName);
+
+                Stream readStream = file.OpenReadStream(maxFileSize);
+
+                /*
+                while(readStream.Position != readStream.Length) {
+                    await using MemoryStream mem = new();
+                    await readStream.CopyToAsync(mem, 4096); <- this is surely cool
+                    byte[] bf = mem.GetBuffer();
+                    await fs.WriteAsync(bf);
+                    Array.Clear(bf, 0, bf.Length);
+
+                    uploadedSize += (double)4096;
+                    percentage = filesSize;
+                    StateHasChanged();
+                }
+                */
+
+                await readStream.CopyToAsync(fs);
+
+                if (readStream.Position != file.Size) Console.WriteLine($"{file.Name} couldn't readen properly.");
+
+                loadedFiles.Add(file);
+
+                Console.WriteLine($"------------------------------------------{file.Name} -> {trustedFileName} FILEUPLOAD------------------------------------------");
+                pushFileHere(file.Name, realName, path, FolderId);
+
+                Logger.LogInformation(
+                    "Unsafe Filename: {UnsafeFilename} File saved: {Filename}",
+                    file.Name, trustedFileName);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FILE ERROR: {file.Name} -> {ex.Message}");
+                Logger.LogError("File: {Filename} Error: {Error}", 
+                    file.Name, ex.Message);
+                await Task.Run(() => {fs.Close();File.Delete(path);});
+            }
+
+        }
+
+        isLoading = false;
+        await UploadHappenedCallback.InvokeAsync();
+    }
+
+    FileObject? getObjById(int id)
+    {
+        var context = DbFactory.CreateDbContext();
+        return context.FileObject.FirstOrDefault(m => m.Id == id);
+    }
+
+    string getRealPath(int id)
+    {
+        string result = string.Empty;
+
+        if (id != -1) {
+            FileObject? obj = getObjById(id);
+            if (obj == null) return string.Empty;
+            return getRealPath(obj.BelongingFolderCode)+"\\"+obj.RealName;
+        } else {
+            return Path.Combine(Environment.ContentRootPath, Environment.EnvironmentName, "unsafe_uploads");
+        }
+    }
+}

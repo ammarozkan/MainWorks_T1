@@ -1,0 +1,150 @@
+@rendermode InteractiveServer
+
+@page "/projects"
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.QuickGrid
+@using WORKS_T1.Models
+@using WORKS_T1.Data
+@implements IAsyncDisposable
+@inject IDbContextFactory<WORKS_T1.Data.WORKS_T1_Context> DbFactory
+
+<PageTitle>Index</PageTitle>
+
+<p>
+    <a href="projects/create">Add New</a>
+</p>
+
+@foreach (var projectCategory in projects) {
+    <h4>@projectCategory.Key</h4>
+    @foreach (var project in projectCategory.Value) {
+        <div class="ProjectCard">
+            <p class="PCE ProjectName">@project.ProjectName</p>
+            @if (project.isOnGoing) {
+                <p class="OnGoingInformation PCE">On Going</p>
+            } else {
+                <p class="NotOnGoingInformation PCE">Not On Going</p>
+            }
+
+            <button @onclick="@(e => ClickWork(project.Id))">Work</button>
+
+            @if (project.focusType == FocusType.MONO) {
+                <p class="PCE" title="Mono focus makes all other projects fall when it begins."> Mono Focus</p>
+            } else if (project.focusType == FocusType.POLY) {
+                <p class="PCE" title="Solo focus only makes the required projects fall when it beings. (For example, mono focused ones.)"> Poly Focus</p>
+            }
+        </div>
+    }
+}
+
+@code {
+    private WORKS_T1_Context context = default!;
+
+    private Dictionary<string,List<Project>> projects = new();
+    protected override void OnInitialized()
+    {
+        RefreshContext();
+    }
+
+    void RefreshContext()
+    {
+        projects.Clear();
+        context = DbFactory.CreateDbContext();
+        var lp = context.Project.Where(p=>true).ToList();
+        foreach (var project in lp) {
+            if (!projects.ContainsKey(project.CategoryName)) {
+                projects[project.CategoryName] = new List<Project>();
+            }
+            
+            projects[project.CategoryName].Add(project);
+        }
+    }
+
+    private async void ClickWork(int WorkId)
+    {
+        var virtContext = DbFactory.CreateDbContext();
+        Project? project = await context.Project.FirstOrDefaultAsync(p => p.Id == WorkId);
+        if(project == null) return;
+        
+        if(project.isOnGoing == true) {
+            StopProject(ref project);
+        } else {
+            StartProject(ref project);
+        }
+        context.Attach(project!).State = EntityState.Modified;
+        await context.SaveChangesAsync();
+        RefreshContext();
+    }
+
+    void StopProject(ref Project project)
+    {
+        var virtContext = DbFactory.CreateDbContext();
+
+        if (project.ActiveAgendaRecordId == null) {
+            Console.WriteLine("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! THERES NOT ANY ACTIVE AGENDA RECORD ID!!!! WTFFFFF!!!!");
+            return;
+        }
+
+        int ActiveAgendaRecordId = project.ActiveAgendaRecordId!.Value;
+
+        AgendaRecord? ar = virtContext.AgendaRecord.FirstOrDefault(m => m.Id == ActiveAgendaRecordId);
+
+        if(ar == null) {
+            Console.WriteLine("!!!!!!!!!!!!!!!!!!!!!!!!!!!!! WHERES THE AGENDARECORD GETTEN BY THE ID?");
+            return;
+        }
+
+
+        Int64 projectEnd = DateTime.Now.Ticks;
+        project.lastAction = projectEnd;
+        project.isOnGoing = false;
+        project.ActiveAgendaRecordId = -1;
+        
+        ar.endDate = projectEnd;
+        virtContext.Attach(ar!).State = EntityState.Modified;
+        virtContext.SaveChangesAsync();
+    }
+
+    void StartProject(ref Project project)
+    {
+        var virtContext = DbFactory.CreateDbContext();
+
+        project.lastAction = DateTime.Now.Ticks;
+        project.isOnGoing = true;
+        if(project.focusType  == FocusType.MONO) {
+            // close all the others
+            List<Project> monos = virtContext.Project.Where(p => true).ToList();
+            foreach (Project p in monos) {
+                Project _p = p;
+                StopProject(ref _p);
+                virtContext.Attach(_p).State = EntityState.Modified;
+            }
+        } else if (project.focusType == FocusType.POLY) {
+            // close all the monos
+            List<Project> monos = virtContext.Project.Where(p => p.focusType == FocusType.MONO).ToList();
+            foreach (Project p in monos) {
+                Project _p = p;
+                StopProject(ref _p);
+                virtContext.Attach(_p).State = EntityState.Modified;
+            }
+        }
+
+        Int64 projectStart = project.lastAction;
+        AgendaRecord ar = new();
+        ar.ProjectId = project.Id;
+        ar.startDate = projectStart;
+        ar.endDate = null;
+        
+        // adding agenda record.
+        virtContext.AgendaRecord.Add(ar);
+        virtContext.SaveChanges();
+
+        project.ActiveAgendaRecordId = ar.Id;
+    }
+
+    private void ClickWork2()
+    {
+        Console.WriteLine("JohnnyBravo!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    }
+
+    public async ValueTask DisposeAsync() => await context.DisposeAsync();
+}

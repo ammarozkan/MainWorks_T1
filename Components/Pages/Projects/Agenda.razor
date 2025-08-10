@@ -1,0 +1,345 @@
+@rendermode InteractiveServer
+
+@page "/agenda"
+@using Microsoft.EntityFrameworkCore
+@using WORKS_T1.Models
+@using WORKS_T1.Data
+@inject IDbContextFactory<WORKS_T1.Data.WORKS_T1_Context> DbFactory
+@inject NavigationManager NavigationManager
+
+
+<PageTitle>Agenda</PageTitle>
+
+<div class="ControlPanel">
+    <input style="width:4rem;" @bind="WORKS_T1.Data.GlobalAgendaConfigs.days" type="number"/> D <input style="width:4rem;"  @bind="WORKS_T1.Data.GlobalAgendaConfigs.hours" type="number"/> H <input style="width:4rem;" @bind="WORKS_T1.Data.GlobalAgendaConfigs.minutes" type="number"/> M
+    <button @onclick="TriggerConfigSwitch">OK</button>
+    <button @onclick='() => NavigationManager.NavigateTo("/projects")'>Projects</button>
+</div>
+
+
+<!-- Clock Renderer -->
+@{
+    void RenderClock(DateTime date)
+    {
+        double left = getPositionByDate(date);
+        if (left < 0 || left > 100) return;
+        
+        <div class="VerticalLine VerticalClockLine" style="left:@cf(left)%;"></div>
+        <p class="ClockText" style="left:@cf(left+0.5)%;">@date.ToString("HH:mm")</p>
+    }
+}
+
+<!-- Clocks -->
+<div class="ClockLine" style="">
+    <div class="TimeTitle" style="padding-left: 9.6rem;">
+    </div>
+    <div style="position:relative;width:100%;">
+    @for (DateTime i = agendaSettings.currentDate ; (agendaSettings.currentDate-i).TotalSeconds < visionLimitAsSeconds ; i = i.AddSeconds(-visionLimitAsSeconds/10)) {
+        RenderClock(i);
+        Console.WriteLine($"{(agendaSettings.currentDate-i).TotalSeconds} _ {i} _ {agendaSettings.currentDate}-----------------------------------------------------");
+    }
+    </div>
+
+</div>
+
+
+<!-- Main Renderer -->
+@foreach (var recordsByCategory in recordsDict)
+{
+    
+    <details id="@recordsByCategory.Key">
+        <summary>
+            @recordsByCategory.Key
+        </summary>
+    @foreach (var records in recordsByCategory.Value)
+    {
+        Project? project = getProjectById(records.Key);
+        <div class="ProjectBlock">
+            
+            @if (project.ActiveAgendaRecordId != -1) { 
+                <div class="ProjectTitle ProjectTitleEpic">
+                    <p>hours @(sumHours(records.Value).ToString("N5"))</p>
+                    <!-- <p>@((sumHours(records.Value)*15.0f).ToString("N5")) $</p> -->
+                    <p>@project.ProjectName</p>
+                </div> 
+            } else { 
+                <div class="ProjectTitle">
+                    <p>hours @(sumHours(records.Value).ToString("N5"))</p>
+                    <!-- <p>@((sumHours(records.Value)*15.0f).ToString("N5")) $</p> -->
+                    <p>@project.ProjectName</p>
+                </div>
+            }
+
+
+            <div class="AgendaBlock">
+                @foreach (AgendaRecord r in records.Value)
+                {
+                    Block b = getBlock(r);
+                    if (b.width < 3.0) {
+                        <div class="VerticalLine" style="left:@cf(b.left)%;right:@cf(b.right);width:@cf(b.width < 0.1 ? 0.1 : b.width)%;">
+                            <p><i>Too Thin</i></p>
+                        </div>
+                    } else {
+                        <div class="AgendaRecordBlock @GetNoncompleteClass(r) @GetNotEndedClass(b)" style="overflow-y:scroll;left:@cf(b.left)%;right:@cf(b.right);width:@cf(b.width)%;">
+                            <WORKS_T1.Components.Pages.NotePages.PagePreviewer PageId="r.notePageCode" NotePageAddedEvent="AddNewPageToRecord" NotePageDeattachEvent="DeattachNotePageFromRecord" distinctValue="r.Id"/>
+                            <br>
+                            <p><i>@(getHoursOfWork(r).ToString("n2")) hours of Work</i></p>
+                            <!-- <p><i>@(cf(getHoursOfWork(r)*15.0f)) $</i></p> -->
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+    
+    </details>
+}
+
+
+<!-- AgendaSettings Form! -->
+<div class="AgendaSettingsForm">
+    <h5>Perspective</h5>
+    <EditForm method="post" Model="agendaSettings" OnValidSubmit="SubmitAgendaSettings" FormName="create" Enhance>
+        <DataAnnotationsValidator />
+        <ValidationSummary class="text-danger" role="alert" />
+        <div class="mb-3">
+            <label for="currentDate" class="form-label">Date:</label>
+            <InputDate id="currentDate" @bind-Value="agendaSettings.currentDate" class="text-danger" />
+            <ValidationMessage For="() => agendaSettings.currentDate" class="text-danger" />
+        </div>
+        <div class="mb-3">
+            <label for="currentTime" class="form-label">Time:</label>
+            <InputText id="currentTime" @bind-Value="agendaSettings.currentTime" class="text-danger" />
+            <ValidationMessage For="() => agendaSettings.currentTime" class="text-danger" />
+        </div>
+</EditForm>
+</div>
+
+@code {
+    async void AddNewPageToRecord(int[] inp)
+    {
+        int RecordId = inp[0], PageId = inp[1];
+        var context = await DbFactory.CreateDbContextAsync();
+        AgendaRecord? record = await context.AgendaRecord.FirstOrDefaultAsync(m => m.Id == RecordId);
+        if (record == null) return;
+        record.notePageCode = PageId;
+        context.Attach(record!).State = EntityState.Modified;
+        await context.SaveChangesAsync();
+        StateHasChanged();
+    }
+
+    async void DeattachNotePageFromRecord(int RecordId)
+    {
+        var context = await DbFactory.CreateDbContextAsync();
+        AgendaRecord? record = await context.AgendaRecord.FirstOrDefaultAsync(m => m.Id == RecordId);
+        if (record == null) return;
+        record.notePageCode = -1;
+        context.Attach(record!).State = EntityState.Modified;
+        await context.SaveChangesAsync();
+        int idefix = recordsDict[getProjectById(record.ProjectId)!.CategoryName][record.ProjectId].FindIndex(t => t.Id == record.Id);
+        recordsDict[getProjectById(record.ProjectId)!.CategoryName][record.ProjectId][idefix] = record;
+        
+        StateHasChanged();
+    }
+    DateTime test; // farest date that is being rendered
+
+    private Dictionary<string,Dictionary<int,List<AgendaRecord>>> recordsDict = new();
+    
+    double sumHours(List<AgendaRecord> records)
+    {
+        double result = 0.0f;
+        foreach (AgendaRecord record in records) {
+            DateTime start = new DateTime(record.startDate!.Value);
+            DateTime end = DateTime.Now;
+            if (record.endDate != null) end = new DateTime(record.endDate!.Value);
+            result += (end-start).TotalHours;
+        }
+        return result;
+    }
+    Int64 minDateTick, maxDateTick;
+
+    double visionLimitAsSeconds;
+
+    class AgendaSettings {
+        public DateTime currentDate {get;set;} = DateTime.Now;
+        public string currentTime {get; set;} = DateTime.Now.ToString("HH:mm");
+    }
+
+    [SupplyParameterFromForm]
+    private AgendaSettings agendaSettings {get; set;} = new();
+
+    private async Task SubmitAgendaSettings()
+    {
+        Console.WriteLine("submitted agenda settings!");
+        agendaSettings.currentDate = agendaSettings.currentDate.Date + TimeSpan.Parse(agendaSettings.currentTime);
+        await LoadRecords();
+    }
+
+    void TriggerConfigSwitch()
+    {
+        Switch(WORKS_T1.Data.GlobalAgendaConfigs.days,WORKS_T1.Data.GlobalAgendaConfigs.hours,WORKS_T1.Data.GlobalAgendaConfigs.minutes);
+    }
+
+    
+    protected override async Task OnInitializedAsync()
+    {
+        // get the all project's agenda records seperately
+        await LoadRecords();
+        TriggerConfigSwitch();
+    }
+
+    MarkupString cf(double val)
+    {
+        return (MarkupString)($"{val}".Replace(",", "."));
+    }
+
+    void AddProjectRecord(AgendaRecord r)
+    {
+        Project? p = getProjectById(r.ProjectId);
+        if (p == null) return;
+        string CategoryName = p!.CategoryName;
+        if(!recordsDict.ContainsKey(CategoryName)) recordsDict[CategoryName] = new Dictionary<int, List<AgendaRecord>>();
+        
+        if (recordsDict[CategoryName].ContainsKey(r.ProjectId)) {
+            recordsDict[CategoryName][r.ProjectId].Add(r);
+        } else {
+            recordsDict[CategoryName][r.ProjectId] = new List<AgendaRecord>();
+            recordsDict[CategoryName][r.ProjectId].Add(r);
+        }
+
+    }
+    async Task LoadRecords()
+    {
+        WORKS_T1_Context context = await DbFactory.CreateDbContextAsync();
+        Int64 viewEnd = test.Ticks;
+        Int64 viewStart = agendaSettings.currentDate.Ticks;
+        List<AgendaRecord> records = await context.AgendaRecord.Where(m => 
+            (m.startDate <= viewStart && m.startDate >= viewEnd) || 
+            (m.endDate <= viewStart && m.endDate >= viewEnd) ||
+            (m.endDate == null && ( DateTime.Now.Ticks >= viewStart && m.startDate <= viewStart ))
+            ).ToListAsync();
+        recordsDict = new();
+        foreach (var r in records) {
+            AddProjectRecord(r);
+        }
+    }
+
+    double getPositionByTime(double seconds)
+    {
+        return (100.0f*seconds)/(visionLimitAsSeconds);
+    }
+
+    double getPositionByDate(DateTime date)
+    {
+        return getPositionByTime((agendaSettings.currentDate - date).TotalSeconds);
+    }
+    
+    MarkupString renderClocks()
+    {
+        string result = string.Empty;
+        for (int i = 0 ; i < 24 ; i += 1) {
+        double left = getClockLeft(i,0);
+        if (left < 0) continue;
+            result += $"<div class='VerticalLine' style=\"position:absolute;left:{left};\">| {i}:00</div>";
+        }
+        return (MarkupString)result;
+    }
+
+    double getClockLeft(int hour, int minute)
+    {
+        return getPositionByTime((agendaSettings.currentDate - DateTime.Today.AddHours((double)hour).AddMinutes((double)minute)).TotalSeconds);
+    }
+
+    void Switch(int days, int hours, int minutes)
+    {
+        test = agendaSettings.currentDate.AddDays(-days);
+        test = test.AddHours(-hours);
+        test = test.AddMinutes(-minutes);
+        visionLimitAsSeconds = (agendaSettings.currentDate - test).TotalSeconds;
+        LoadRecords();
+    }
+
+    string GetProjectNameById(int id)
+    {
+        WORKS_T1_Context context = DbFactory.CreateDbContext();
+        Project? p = context.Project.FirstOrDefault(m => m.Id == id);
+
+        if (p != null) {
+            return p.ProjectName;
+        } else {
+            return "Not Found";
+        }
+    }
+
+    Project? getProjectById(int id)
+    {
+        WORKS_T1_Context context = DbFactory.CreateDbContext();
+        Project? p = context.Project.FirstOrDefault(m => m.Id == id);
+        return p;
+    }
+
+    class Block {
+        public double left;
+        public double right;
+        public double width;
+        public bool nonEnding = false;
+    }
+
+
+    Block getBlock(AgendaRecord r)
+    {
+        Block b = new();
+        DateTime startDate = new DateTime(ticks:r.startDate!.Value);
+        b.right = getPositionByTime((agendaSettings.currentDate-startDate).TotalSeconds);
+
+        if(r.endDate == null) {
+            b.left = 0.0f;
+            if (agendaSettings.currentDate > DateTime.Now) b.left = getPositionByDate(DateTime.Now);
+            b.width = b.right;
+        } else {
+            DateTime endDate = new DateTime(ticks:r.endDate!.Value);
+            b.left = getPositionByTime((agendaSettings.currentDate-endDate).TotalSeconds);
+            b.width = getPositionByTime((endDate-startDate).TotalSeconds);
+        }
+        if(b.left+b.width > 100) {
+            b.width = 100-b.left;
+            b.nonEnding = true;
+        }
+        return b;
+    }
+
+    MarkupString GetNoncompleteClass(AgendaRecord r)
+    {
+        string className = "NonComplete";
+        if (r.endDate == null || r.endDate!.Value > agendaSettings.currentDate.Ticks) {
+            return (MarkupString)className;
+        }
+        return (MarkupString)string.Empty;
+    }
+
+    MarkupString GetNotEndedClass(Block b)
+    {
+        string className = "NotEnded";
+        if(b.nonEnding) { 
+            return (MarkupString)className;
+        } else {
+            return (MarkupString)string.Empty;
+        }
+    }
+
+    double getHoursOfWork(AgendaRecord r)
+    {
+        DateTime start = new DateTime(r.startDate!.Value);
+        DateTime end;
+        if (r.endDate == null) {
+            end = DateTime.Now;
+        } else {
+            end = new DateTime(r.endDate!.Value);
+        }
+
+        return (end-start).TotalHours;
+    }
+
+
+
+}

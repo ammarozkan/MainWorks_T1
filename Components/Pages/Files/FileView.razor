@@ -1,0 +1,160 @@
+@rendermode InteractiveServer
+@page "/fileview"
+@using Microsoft.EntityFrameworkCore
+@using WORKS_T1.Models
+@using WORKS_T1.Data
+@using System.IO
+
+@inject IWebHostEnvironment Environment
+@inject IDbContextFactory<WORKS_T1.Data.WORKS_T1_Context> DbFactory
+@inject NavigationManager NavigationManager
+
+
+@if (FolderId != -1)
+{
+    <button @onclick="magicaltreedot" style="width:100%;">...</button>
+}
+
+@if (MovingRns.Count > 0)
+{
+    <button @onclick="MoveHere"> Move Here </button>
+}
+
+@foreach (var obj in objects)
+{
+    <FilePreviewer obj="obj" EnterFolderCallback="ChangeFolder" MoveCallback="TriggerMove" RemoveCallback="TriggerRemove" IsMoving="MovingRns.Contains(obj.Id)"/>
+}
+
+<div style="display:flex;padding:1.75rem;">
+    <FileUpload FolderId="@FolderId" UploadHappenedCallback="ProRefresh"/>
+    <button @onclick="CreateFolder">Create Folder</button>
+</div>
+
+@code {
+    List<FileObject> objects;
+
+    int FolderId = -1;
+    
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "FolderId")]
+    public int? FolderIdPrm { 
+        get {return FolderId;}
+        set { if (value.HasValue) FolderId = value!.Value; }
+    }
+
+    List<int> MovingRns = new();
+
+    async Task RefreshFiles()
+    {
+        var context = DbFactory.CreateDbContext();
+        objects = await context.FileObject.Where(m => m.BelongingFolderCode == FolderId).ToListAsync();
+    }
+
+    async void ProRefresh()
+    {
+        await RefreshFiles();
+        StateHasChanged();
+    }
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshFiles();   
+    }
+
+    public async void ChangeFolder(int FolderId)
+    {
+        Console.WriteLine($"CHANGE FOLDER TO {this.FolderId} from {FolderId}");
+        this.FolderId = FolderId;
+        await RefreshFiles();
+        StateHasChanged();  
+    }
+
+    public async void TriggerRemove(FileObject obj)
+    {
+        int fcd = obj.BelongingFolderCode;
+        var context = await DbFactory.CreateDbContextAsync();
+        context.Attach(obj).State = EntityState.Deleted;
+        if (obj.isFolder) Directory.Delete(getRealPath(obj.Id));
+        else File.Delete(getRealPath(obj.Id));
+        await context.SaveChangesAsync();
+        await RefreshFiles();
+        StateHasChanged();
+    }
+
+    public async void TriggerMove(int Id)
+    {
+        MovingRns.Add(Id);
+    }
+
+    void MoveHere(int MovingRn,ref WORKS_T1_Context context)
+    {
+        FileObject? fileObject = getObjById(MovingRn);
+        string oldFolder = getRealPath(fileObject!.BelongingFolderCode);
+        string newFolder = getRealPath(FolderId);
+        if (fileObject!.isFolder) Directory.Move(getRealPath(fileObject.Id), getRealPath(FolderId)+"\\"+fileObject.RealName);
+        else File.Move(getRealPath(fileObject.Id), getRealPath(FolderId)+"\\"+fileObject.RealName);
+        fileObject.BelongingFolderCode = FolderId;
+        context.Attach(fileObject!).State = EntityState.Modified;
+    }
+
+    public async void MoveHere()
+    {
+        var context = DbFactory.CreateDbContext();
+        foreach (int MovingRn in MovingRns) {
+            MoveHere(MovingRn, ref context);
+        }
+        MovingRns.Clear();
+
+        await context.SaveChangesAsync();
+        await RefreshFiles();
+        StateHasChanged();
+    }
+
+    async void CreateFolder()
+    {
+        var context = await DbFactory.CreateDbContextAsync();
+        FileObject obj = new();
+            obj.Name = "NewFolder";
+            obj.RealName = "NewFolder__"+Path.GetRandomFileName();
+            obj.BelongingFolderCode = FolderId;
+            obj.isFolder = true;
+        await context.AddAsync(obj);
+        await context.SaveChangesAsync();
+        await RefreshFiles();
+
+        Console.WriteLine($"{getRealPath(obj.Id)} and Id is {obj.Id}",getRealPath(obj.Id),obj.Id);
+        Directory.CreateDirectory(getRealPath(obj.Id));
+
+        StateHasChanged();
+    }
+
+    async void magicaltreedot()
+    {
+        var context = await DbFactory.CreateDbContextAsync();
+        FileObject? obj = await context.FileObject.FirstOrDefaultAsync(m => m.Id == FolderId);
+        if (obj == null) {
+            Console.WriteLine("no....");
+            return;
+        }
+
+        ChangeFolder(obj.BelongingFolderCode);
+    }
+
+    FileObject? getObjById(int id)
+    {
+        var context = DbFactory.CreateDbContext();
+        return context.FileObject.FirstOrDefault(m => m.Id == id);
+    }
+
+    string getRealPath(int id)
+    {
+        string result = string.Empty;
+
+        if (id != -1) {
+            FileObject? obj = getObjById(id);
+            if (obj == null) return string.Empty;
+            return getRealPath(obj.BelongingFolderCode)+"\\"+obj.RealName;
+        } else {
+            return Path.Combine(Environment.ContentRootPath, Environment.EnvironmentName, "unsafe_uploads");
+        }
+    }
+}

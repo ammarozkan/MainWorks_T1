@@ -1,0 +1,321 @@
+@rendermode InteractiveServer
+@page "/pagerenderer/{PageId:int}"
+@implements IDisposable
+
+@using WORKS_T1.Models
+@using System
+
+
+@using Microsoft.EntityFrameworkCore
+@inject IJSRuntime JS
+@inject IDbContextFactory<WORKS_T1.Data.WORKS_T1_Context> DbFactory
+
+<PageTitle>@pageTitle</PageTitle>
+
+<!--  Piece Requirements (subsystems) -->
+
+<div class="NotePageLinkSubsystem LoseIt">
+    @for (int i = 0 ; i < pages.Count ; i++) {
+        <div class="NotePageLinkSubsystemSelect" pageCode="@(i+1)"> @pages[i].Title </div>
+    }
+</div>
+
+
+<!-- Piece rendering -->
+
+@for (int i = 0; i < components.Count; i++)
+{
+    var _i = i;
+    <div class="NotePiece" id="@(i)_Piece" order="@(i)">
+        <p class="MoveButton">░</p>
+        @(components[i].TheRenderFragment)
+
+        <div class="SettingsPanel LoseIt Transitmania" order="@(i)"></div>
+        
+        <div class="SupportingButtonsPanel Transitmania HideIt" style="display: flex; align-items: center;" order="@(i)">
+            <p id=@($"{i}_RemoveButton") class="SupportingButton SupportingButtonLeft RemoveButton Transitmania" order="@(i)"><i>R</i></p>
+            <p id=@($"{i}_RemoveButton") class="SupportingButton SupportingButtonRight SettingsButton Transitmania" order="@(i)"><i>S</i></p>
+        </div>
+    </div>
+}
+
+
+<!-- Piece Adder -->
+
+<div>
+    <div class="PieceTypeSelector LoseIt">
+        <div class="PieceTypeSelectorType" pieceTypeCode="0"> Text </div>
+        <div class="PieceTypeSelectorType" pieceTypeCode="1"> Header </div>
+        <div class="PieceTypeSelectorType" pieceTypeCode="2"> Image </div>
+        <div class="PieceTypeSelectorType" pieceTypeCode="3"> Note Page Link </div>
+        <div class="PieceTypeSelectorType" pieceTypeCode="4"> Number </div>
+        <div class="PieceTypeSelectorType" pieceTypeCode="5"> @@ Link </div>
+        <div class="PieceTypeSelectorType" pieceTypeCode="6"> File </div>
+    </div>
+</div>
+<p style="color:gray;cursor: pointer;" class="adder">Add a new Piece.
+</p>
+
+@code {
+    public void Dispose()
+    {
+        Console.WriteLine("===============> DISPOSING");
+        if (objRef != null) objRef!.Dispose();
+        if (module != null) module!.DisposeAsync();
+        components.Clear();
+        pages.Clear();
+        Console.WriteLine("DISPOSED!");
+    }
+
+    // JAVASCRIPT INIT
+    private IJSObjectReference? module;
+    private DotNetObjectReference<PageRenderer>? objRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // JQuery Import
+
+            await JS.InvokeAsync<IJSObjectReference>("import",
+                "/lib/jquery-3.7.1.min.js");
+            await JS.InvokeAsync<IJSObjectReference>("import",
+                "/lib/JQueryUI/1.14.1/jquery-ui.min.js");
+            
+            module = await JS.InvokeAsync<IJSObjectReference>("import",
+                "./Components/Pages/NotePages/PageRenderer.razor.js");
+
+            objRef = DotNetObjectReference.Create(this);
+            await module.InvokeVoidAsync("registerInstance", objRef);
+            await module.InvokeVoidAsync("refreshAll", objRef);
+        }
+    }
+
+    void RefreshJQuerySetters()
+    {
+        module.InvokeVoidAsync("refreshAll", objRef);
+    }
+
+
+    // NOTE EDITOR
+
+    [Parameter]
+    public int PageId {get;set;}
+
+    public string pageTitle = string.Empty;
+
+    private List<NotePagePieceComponent> components = new List<NotePagePieceComponent>();
+    private List<NotePage> pages = new List<NotePage>();
+
+    private NotePage? np;
+
+    async Task UpdatePiecesListFromDatabaseAsync()
+    {
+        components = new List<NotePagePieceComponent>();
+        using var context = DbFactory.CreateDbContext();
+
+
+        List<NotePagePiece> g = await context.NotePagePiece.Where(m => m.PageId == PageId).OrderBy(m => m.Order).ToListAsync();
+        foreach (NotePagePiece piece in g) {
+            NotePagePieceComponent? newOne = convertToComponent(piece);
+            if(newOne == null) {
+                continue;
+            }
+            newOne.RenderToFragment();
+            components.Add(newOne);
+        }
+    }
+
+    NotePagePieceComponent? convertToComponent(NotePagePiece piece)
+    {
+        if (piece.type == 0) {
+            return new NotePagePieceComponent_Text(piece);
+        } else if (piece.type == 1) {
+            return new NotePagePieceComponent_Header(piece);
+        } else if (piece.type == 2) {
+            return new NotePagePieceComponent_Image(piece);
+        } else if (piece.type == 3) {
+            return new NotePagePieceComponent_NotePageLink(piece);
+        } else if (piece.type == 5) {
+            return new NotePagePieceComponent_Link(piece);
+        } else if (piece.type == 6) {
+            return new NotePagePieceComponent_FileObject(piece);
+        } else {
+            return null;
+        }
+    }
+
+    void AddPiece(NotePagePiece piece)
+    {
+        NotePagePieceComponent? newGuest = convertToComponent(piece);
+        if (newGuest == null) return;
+
+        components.Add(newGuest);
+    }
+
+    async void SaveAsync()
+    {
+        Console.WriteLine("-----------------------------------------------------OKAY!");
+        using var context = await DbFactory.CreateDbContextAsync();
+        for(int i = 0 ; i < components.Count ; i += 1) {
+            NotePagePiece? np = context.NotePagePiece.FirstOrDefault(m => m.Id == components[i].Id);
+            if (np != null) {
+                np.Value = components[i].Value;
+                np.Order = i;
+                np.type = components[i].type;
+                context.Attach(np!).State = EntityState.Modified;
+                await context.SaveChangesAsync();
+            }
+        }
+        //UpdatePiecesListFromDatabaseAsync();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Console.WriteLine("NotePage INIT!");
+        using var context = await DbFactory.CreateDbContextAsync();
+        np = await context.NotePage.FirstOrDefaultAsync(m => m.Id == PageId);
+        if (np != null) {
+            pageTitle = np!.Title == null ? string.Empty : np!.Title!;
+        } else {
+            Console.WriteLine("not found.");
+        }
+
+        await UpdatePiecesListFromDatabaseAsync();
+        pages = await context.NotePage.Where(m=>true).ToListAsync();
+    }
+
+    [JSInvokable]
+    public void ChangeValue(int order, string value)
+    {
+        bool stateShouldChanged = false;
+        Console.WriteLine("=======> HEI:"+value+order.ToString());
+        if (components[order] != null) {
+            NotePagePiece piece = components[order];
+            NotePagePieceComponent? pieceComponent = convertToComponent(components[order].Change(piece, value, "standard", out stateShouldChanged));
+            if (pieceComponent != null) {
+                components[order] = pieceComponent;
+                Console.WriteLine("Change executed into the component.");
+            } else {
+                Console.WriteLine($"Converter returned a null when converting a type {piece.type} to component.");
+            }
+        } else {
+            Console.WriteLine("REQUESTED COMPONENT IS NULL");
+        }
+
+        Console.WriteLine("Database intuition.");
+        using var context = DbFactory.CreateDbContext();
+        Console.WriteLine("Context createn.");
+        NotePagePiece? npp = context.NotePagePiece.FirstOrDefault(m => m.Order == order && m.PageId == PageId);
+        Console.WriteLine($"Note page peace fetch. {npp}. But is it null? => {npp == null}");
+        if (npp != null) {
+            npp.Value = components[order].Value;
+            npp.Order = order;
+            npp.PageId = PageId;
+            npp.type = components[order].type;
+            Console.WriteLine($"Changes modified. State change.");
+            context.Attach(npp!).State = EntityState.Modified;
+            Console.WriteLine($"State changed. Saving to database.");
+            context.SaveChangesAsync();
+            Console.WriteLine($"save complete! {order},{value}");
+        } else {
+            Console.WriteLine("NotePagePiece is null, therefore, no change is maden to the database.");
+        }
+
+        if (stateShouldChanged) {
+            CustomStateChange();
+        }
+    }
+
+    [JSInvokable]
+    async public void ChangeOrder(int order, int newOrder)
+    {
+        NotePagePieceComponent elm = components[order];
+        components.Remove(components[order]);
+        components.Insert(newOrder,elm);
+        SaveAsync();
+        CustomStateChange();
+        RefreshJQuerySetters();
+    }
+
+    [JSInvokable]
+    async public void PopTheHellOutThatOrderedElement(int order)
+    {
+        /*
+        if (order >= components.Count) {
+            Console.WriteLine($"Accidentally removing of extra element is requested. Cancelling. order:{order} and count:{components.Count}");
+            return;
+        }*/
+        using var context = DbFactory.CreateDbContext();
+        Console.WriteLine($"----------{order} is request and components are {components.Count}");
+        if (order < components.Count) {
+            NotePagePiece np = components[order];
+            context.NotePagePiece.Attach(np);
+            context.NotePagePiece.Remove(np);
+            Console.WriteLine($"Removing {np}");
+            await context.SaveChangesAsync();
+        }
+        components.Remove(components[order]);
+        SaveAsync();
+        CustomStateChange();
+        await module!.InvokeVoidAsync("refreshAll");
+    }
+
+    [JSInvokable]
+    public void AddToEnd(int typeCode)
+    {
+        Console.WriteLine("Adding ",typeCode,"!");
+        NotePagePiece npp = new();
+        npp.Order = components.Count;
+        npp.type = typeCode;
+        npp.Value = SystemHelper.getIlValueByType(typeCode);
+        npp.PageId = PageId;
+
+        using var context = DbFactory.CreateDbContext();
+        context.NotePagePiece.Add(npp);
+        context.SaveChangesAsync();
+
+
+        NotePagePiece? dbone = context.NotePagePiece.FirstOrDefault(m => m.Order == npp.Order && m.PageId == npp.PageId);
+
+        if (dbone != null) {
+            NotePagePieceComponent? pieceComponent = convertToComponent(dbone);
+            if (pieceComponent != null) {
+                components.Add(pieceComponent);
+            } else {
+                Console.WriteLine($"Converter returned a null when trying to convert {dbone.type} type.");
+            }
+        }
+
+        CustomStateChange();
+        RefreshJQuerySetters();
+    }
+
+    [JSInvokable]
+    public void InvokePieceTrigger(int order, string value, string method)
+    {
+        bool stateShouldChanged = false;
+        int typeCode = components[order].type;
+        NotePagePieceComponent? component = convertToComponent(components[order].Change(components[order], value, method, out stateShouldChanged));
+        if (component == null) return;
+        components[order] = component;
+
+        if(stateShouldChanged) CustomStateChange();
+    }
+
+
+
+    void CustomStateChange()
+    {
+        UpdateComponentRenderFragments();   
+
+        StateHasChanged();
+    }
+
+    void UpdateComponentRenderFragments()
+    {
+        foreach(var comp in components) {
+            comp.RenderToFragment();
+        }
+    }
+}

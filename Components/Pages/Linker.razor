@@ -1,0 +1,33 @@
+@rendermode InteractiveServer
+
+@using Microsoft.EntityFrameworkCore
+@using WORKS_T1.Models
+@using WORKS_T1.Data
+@inject IWebHostEnvironment Environment
+@inject IDbContextFactory<WORKS_T1.Data.WORKS_T1_Context> DbFactory
+@inject IJSRuntime JS
+
+@if (il != null) {
+    /*
+    <div class="IndependentLinkBox">
+        <p>Reference!</p>
+    </div>
+    */
+} else {
+
+}
+
+
+@code {
+    IndependentLink? il = SystemHelper.il;
+    protected override void OnInitialized()
+    {
+        
+    }
+
+    void Clear()
+    {
+        SystemHelper.il = null;
+        StateHasChanged();
+    }
+}
